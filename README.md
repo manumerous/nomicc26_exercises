@@ -19,7 +19,7 @@ The following software is required to run the examples:
   - On Windows, the "Microsoft Store" based installation methods will not work.
 - `CasADi` version `>=3.8`, an open-source tool for nonlinear optimization and algorithmic differentiation. 
   - Installation: Follow instructions on [this page,](https://web.casadi.org/get/)
-- [`CAMINO`](github.com/minlp-toolbox/CAMINO) a software package providing a Python/CasADi-based implementation of several algorithms for solving mixed-integer nonlinear programs (MINLPs). We primarily use this for the `Description` interface which is used to model two of the exercises.
+- [`CAMINO`](https://github.com/minlp-toolbox/CAMINO) a software package providing a Python/CasADi-based implementation of several algorithms for solving mixed-integer nonlinear programs (MINLPs). We primarily use this for the `Description` interface which is used to model two of the exercises.
   - Installation: `pip install caminopy`
 - [`libMad`](https://github.com/madsuite-org/libMad), a shared library which contains a c interface for [`CCOpt.jl`](https://github.com/madsuite-org/CCOpt.jl) and [`MadNLP.jl`](https://github.com/madsuite-org/MadNLP.jl).
   - Installation: Download and untar the correct [built release](https://github.com/madsuite-org/libMad/releases/tag/v0.0.12-casadi). Follow instructions in the README for your particular platform. This mostly involves adding the path to `libMad.<soext>`, to the dynamic library load path on your platform (`LD_LIBRARY_PATH` on linux systems, `DYLD_LIBRARY_PATH` on apple systems, and `PATH` on windows systems).
