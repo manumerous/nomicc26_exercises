@@ -16,7 +16,9 @@ between MINLP and MPEC formulations and solvers. See the latex file [WaterNetwor
 
    1. Replace the binary constraint (eq:minlp-bin) by a set of complementarity constraints:
 
-      $$0 \leq z_{ij} \perp z_{ij} \leq 1, \quad (i,j)\in\mathcal{A}. \tag{mpec1}$$
+```math
+0 \leq z_{ij} \perp z_{ij} \leq 1, \quad (i,j)\in\mathcal{A}. \tag{mpec1}
+```
 
    2. Remove the binary variables, and write the complementarity on the arc-flow variables:
 
