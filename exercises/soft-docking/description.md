@@ -181,8 +181,7 @@ F = integrate_rk4(x, u, xdot, data.dt)
 The discrete dynamic constraint is
 
 $$
-x_{k+1}
-=
+x_{k+1} =
 \Phi_{\mathrm{RK4}}(x_k,u_k,\Delta t).
 $$
 
@@ -203,8 +202,7 @@ $$
 with
 
 $$
-p_{\min}
-=
+p_{\min} =
 \begin{bmatrix}
 -10 & -10 & -10
 \end{bmatrix}^{\mathsf T}\ \mathrm{m},
@@ -213,8 +211,7 @@ $$
 and
 
 $$
-p_{\max}
-=
+p_{\max} =
 \begin{bmatrix}
 2000 & 2000 & 2000
 \end{bmatrix}^{\mathsf T}\ \mathrm{m}.
@@ -233,8 +230,7 @@ $$
 where
 
 $$
-v_{\max}
-=
+v_{\max} =
 \begin{bmatrix}
 500 & 500 & 500
 \end{bmatrix}^{\mathsf T}\ \mathrm{m/s}.
@@ -254,8 +250,7 @@ $$
 The stage objective penalizes distance from the docking site and control effort:
 
 $$
-\ell_k
-=
+\ell_k =
 q_k^{\mathsf T}Q_pq_k
 +
 \rho_u\lVert u_k\rVert_2^2.
@@ -276,8 +271,7 @@ $$
 The accumulated stage objective is scaled by the horizon length:
 
 $$
-J_{\mathrm{stage}}
-=
+J_{\mathrm{stage}} =
 \frac{1}{T}
 \sum_{k=0}^{N-1}
 \ell_k.
@@ -286,8 +280,7 @@ $$
 If terminal equality constraints are disabled, terminal penalties are added:
 
 $$
-J_{\mathrm{terminal}}
-=
+J_{\mathrm{terminal}} =
 10\lVert p_N-p_d\rVert_2^2
 +
 100\lVert v_N\rVert_2^2.
@@ -296,8 +289,7 @@ $$
 The full objective is
 
 $$
-J
-=
+J =
 J_{\mathrm{stage}}
 +
 J_{\mathrm{terminal}}.
@@ -362,11 +354,7 @@ $$
 Define the speed-constraint residual
 
 $$
-G_{\mathrm{speed},k}
-=
-\lVert v_k\rVert_2
--
-\alpha d_k.
+G_{\mathrm{speed},k} = \lVert v_k\rVert_2 - \alpha d_k.
 $$
 
 The speed condition is equivalent to
@@ -390,8 +378,7 @@ This enforces a maximal docking speed profile.
 The docking-site orientation is constructed from
 
 $$
-n_{\mathrm{raw}}
-=
+n_{\mathrm{raw}} =
 \begin{bmatrix}
 1 & 1 & 0
 \end{bmatrix}^{\mathsf T}.
@@ -400,11 +387,7 @@ $$
 The normalized orientation is
 
 $$
-n_d
-=
-\frac{n_{\mathrm{raw}}}
-{\lVert n_{\mathrm{raw}}\rVert_2}
-=
+n_d = \frac{n_{\mathrm{raw}}}{\lVert n_{\mathrm{raw}}\rVert_2} =
 \frac{1}{\sqrt{2}}
 \begin{bmatrix}
 1 & 1 & 0
@@ -428,10 +411,7 @@ $$
 Define the line-of-sight residual
 
 $$
-G_{\mathrm{los},k}
-=
-d_k\cos\theta_{\max}
--
+G_{\mathrm{los},k} = d_k\cos\theta_{\max} -
 q_k^{\mathsf T}n_d.
 $$
 
