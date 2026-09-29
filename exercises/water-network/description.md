@@ -16,11 +16,11 @@ between MINLP and MPEC formulations and solvers. See the latex file [WaterNetwor
 
    1. Replace the binary constraint (eq:minlp-bin) by a set of complementarity constraints:
 
-      $$0 \leq z_{ij} \;\perp\; z_{ij} \leq 1, \quad (i,j)\in\mathcal{A}. \tag{mpec1}$$
+      $$0 \leq z_{ij} \perp z_{ij} \leq 1, \quad (i,j)\in\mathcal{A}. \tag{mpec1}$$
 
    2. Remove the binary variables, and write the complementarity on the arc-flow variables:
 
-      $$0 \leq q^+_{ij} \;\perp\; q^-_{ij} \geq 0, \quad (i,j)\in\mathcal{A}. \tag{mpec2}$$
+      $$0 \leq q^+_{ij} \perp q^-_{ij} \geq 0, \quad (i,j)\in\mathcal{A}. \tag{mpec2}$$
 
    Experiment with both formulations, using **UNO** and the MPEC solvers in **CASADI**. To write the problem as a nonlinear optimization problem, we replace the complementarity constraints by a nonlinear constraint. There are two ways to formulate the
    complementarity:
