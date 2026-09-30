@@ -5,16 +5,16 @@ from utils import sprandsym
 # TODO(@anton): maybe include nosnoc/vdx
 # import nosnoc as ns
 
-class SparsePortfolioOptimization():
 
+class SparsePortfolioOptimization:
     def __init__(self, N, Q=None, mu=None, beta=1.0, rho=1.0, M=100, density=0.05):
         if Q is None:
             MQ = sprandsym(N, density)
-            Q = MQ @ MQ.T + eye_array(N)*np.random.rand(N)
+            Q = MQ @ MQ.T + eye_array(N) * np.random.rand(N)
         if mu is None:
             mu = np.random.rand(N)
-        assert Q.shape == (N,N)
-        assert mu.shape == (N,) or mu.shape == (N,1)
+        assert Q.shape == (N, N)
+        assert mu.shape == (N,) or mu.shape == (N, 1)
 
         self.N = N
         self.Q = ca.sparsify(ca.DM(Q.toarray()))
@@ -38,12 +38,12 @@ class SparsePortfolioOptimization():
         if self.ccopt_solver is None:
             self._build_ccopt()
         res = self.ccopt_solver(
-            x0=np.zeros(5*self.N) if x0 is None else x0,
+            x0=np.zeros(5 * self.N) if x0 is None else x0,
             lbx=self.lbw_ccopt,
             ubx=self.ubw_ccopt,
             lbg=self.lbg_ccopt,
             ubg=self.ubg_ccopt,
-            p=np.array([self.rho,self.beta,self.M]),
+            p=np.array([self.rho, self.beta, self.M]),
         )
         self.ccopt_res = res
         return res
@@ -52,12 +52,12 @@ class SparsePortfolioOptimization():
         if self.daqp_solver is None:
             self._build_daqp()
         res = self.daqp_solver(
-            x0=np.zeros(2*self.N) if x0 is None else x0,
+            x0=np.zeros(2 * self.N) if x0 is None else x0,
             lbx=self.lbw_daqp,
             ubx=self.ubw_daqp,
             lbg=self.lbg_daqp,
             ubg=self.ubg_daqp,
-            p=np.array([self.rho,self.beta,self.M]),
+            p=np.array([self.rho, self.beta, self.M]),
         )
         self.daqp_res = res
         return res
@@ -66,12 +66,12 @@ class SparsePortfolioOptimization():
         if self.bonmin_solver is None:
             self._build_bonmin()
         res = self.bonmin_solver(
-            x0=np.zeros(2*self.N) if x0 is None else x0,
+            x0=np.zeros(2 * self.N) if x0 is None else x0,
             lbx=self.lbw_bonmin,
             ubx=self.ubw_bonmin,
             lbg=self.lbg_bonmin,
             ubg=self.ubg_bonmin,
-            p=np.array([self.rho,self.beta,self.M]),
+            p=np.array([self.rho, self.beta, self.M]),
         )
         self.bonmin_res = res
         return res
@@ -80,16 +80,15 @@ class SparsePortfolioOptimization():
         if self.gurobi_solver is None:
             self._build_gurobi()
         res = self.gurobi_solver(
-            x0=np.zeros(2*self.N) if x0 is None else x0,
+            x0=np.zeros(2 * self.N) if x0 is None else x0,
             lbx=self.lbw_gurobi,
             ubx=self.ubw_gurobi,
             lbg=self.lbg_gurobi,
             ubg=self.ubg_gurobi,
-            p=np.array([self.rho,self.beta,self.M]),
+            p=np.array([self.rho, self.beta, self.M]),
         )
         self.gurobi_res = res
         return res
-
 
     def _build_common(self):
         self.x = ca.SX.sym("x", self.N)
@@ -98,7 +97,9 @@ class SparsePortfolioOptimization():
         self.p_beta = ca.SX.sym("beta")
         self.p_M = ca.SX.sym("M")
         self.p = ca.vertcat(self.p_rho, self.p_beta, self.p_M)
-        self.f_common = 0.5*ca.bilin(self.Q, self.x) - self.p_beta*ca.dot(self.mu, self.x)
+        self.f_common = 0.5 * ca.bilin(self.Q, self.x) - self.p_beta * ca.dot(
+            self.mu, self.x
+        )
 
     def _build_ccopt(self):
         """
@@ -111,39 +112,60 @@ class SparsePortfolioOptimization():
         and `self.ubw_ccopt` data vectors.
         """
 
-        self.x_plus = ca.SX.sym("x_plus", self.N)
-        self.x_minus = ca.SX.sym("x_minus", self.N)
-        self.x_plus_minus = ca.SX.sym("x_plus_minus", self.N)
+        self.x_p = ca.SX.sym("x_p", self.N)
+        self.x_n = ca.SX.sym("x_n", self.N)
+        self.x_abs = ca.SX.sym("x_abs", self.N)
         self.z = ca.SX.sym("z", self.N)
 
-        self.w_ccopt = ca.vertcat(self.x, self.x_plus, self.x_minus, self.x_plus_minus, self.z)
+        self.w_ccopt = ca.vertcat(self.x, self.x_p, self.x_n, self.x_abs, self.z)
 
-        self.obj_ccopt = self.f_common + self.p_rho* ca.sum1(1 - self.z)
-        self.g_ccopt = ca.vertcat(self.g_common, self.x - self.x_plus + self.x_minus, self.x_plus_minus - self.x_plus - self.x_minus)
+        self.obj_ccopt = self.f_common + self.p_rho * ca.sum1(1 - self.z)
+        self.g_ccopt = ca.vertcat(
+            self.g_common,
+            self.x - self.x_p + self.x_n,
+            self.x_abs - self.x_p - self.x_n,
+        )
 
         self.cc_pairs_list = []
         self.cc_types_list = []
         for i in range(self.N):
-            self.cc_pairs_list.append((self.N + i, 2*self.N + i))
-            self.cc_types_list.append(0) # VARVAR 0 VARCON 1 CONVAR 2 CONCON 3
-            self.cc_pairs_list.append((4*self.N + i, 3*self.N + i))
-            self.cc_types_list.append(0) # VARVAR 0 VARCON 1 CON
+            self.cc_pairs_list.append((self.N + i, 2 * self.N + i))
+            self.cc_types_list.append(0)  # VARVAR 0 VARCON 1 CONVAR 2 CONCON 3
+            self.cc_pairs_list.append((4 * self.N + i, 3 * self.N + i))
+            self.cc_types_list.append(0)  # VARVAR 0 VARCON 1 CON
 
-        self.lbg_ccopt = ca.vertcat(1, ca.DM.zeros(self.g_ccopt.shape[0] - 1))
-        self.ubg_ccopt = ca.vertcat(1, ca.DM.zeros(self.g_ccopt.shape[0] - 1))
-        self.lbw_ccopt = ca.vertcat(ca.DM.zeros(self.N), ca.DM.zeros(self.N), ca.DM.zeros(self.N), ca.DM.zeros(self.N), ca.DM.zeros(self.N))
-        self.ubw_ccopt = ca.vertcat(10*ca.DM.ones(self.N), 10*ca.DM.ones(self.N), 10*ca.DM.ones(self.N), 20*ca.DM.ones(self.N), ca.DM.ones(self.N))
+        self.lbg_ccopt = ca.vertcat(1.0, ca.DM.zeros(self.g_ccopt.shape[0] - 1))
+        self.ubg_ccopt = ca.vertcat(1.0, ca.DM.zeros(self.g_ccopt.shape[0] - 1))
+        self.lbw_ccopt = ca.vertcat(
+            ca.DM.zeros(self.N),
+            ca.DM.zeros(self.N),
+            ca.DM.zeros(self.N),
+            ca.DM.zeros(self.N),
+            ca.DM.zeros(self.N),
+        )
 
+        self.lbw_ccopt = ca.vertcat(
+            -np.inf * ca.DM.ones(self.N),
+            ca.DM.zeros(self.N),
+            ca.DM.zeros(self.N),
+            ca.DM.zeros(self.N),
+            ca.DM.zeros(self.N),
+        )
+
+        self.ubw_ccopt = ca.vertcat(
+            np.inf * ca.DM.ones(self.N),
+            np.inf * ca.DM.ones(self.N),
+            np.inf * ca.DM.ones(self.N),
+            np.inf * ca.DM.ones(self.N),
+            ca.DM.ones(self.N),
+        )
 
         casadi_solver_opts = {
             "cc_pairs": self.cc_pairs_list,
-            "cc_types": self.cc_types_list, #cc_types from libMad: VARVAR 0 VARCON 1 CONVAR 2 CONCON 3
+            "cc_types": self.cc_types_list,  # cc_types from libMad: VARVAR 0 VARCON 1 CONVAR 2 CONCON 3
             "print_time": False,
         }
-        casadi_solver_opts["madnlp"] = {
-            "bound_relax_factor": 0.0
-        }
-
+        casadi_solver_opts["madnlp"] = {"bound_relax_factor": 0.0}
 
         mpcc = {
             "x": self.w_ccopt,
@@ -152,7 +174,9 @@ class SparsePortfolioOptimization():
             "g": self.g_ccopt,
         }
 
-        self.ccopt_solver = ca.nlpsol("sparse_portfolio_ccopt", "ccopt", mpcc, casadi_solver_opts)
+        self.ccopt_solver = ca.nlpsol(
+            "sparse_portfolio_ccopt", "ccopt", mpcc, casadi_solver_opts
+        )
 
     def _build_daqp(self):
         """
@@ -165,20 +189,17 @@ class SparsePortfolioOptimization():
         and `self.ubw_daqp` data vectors.
         """
 
-        raise NotImplementedError("Please implement the daqp portfolio optimization solver")
-        daqp = {
-            "f": self.obj_daqp,
-            "p": self.p,
-            "x": self.w_daqp,
-            "g": self.g_daqp
-        }
+        raise NotImplementedError(
+            "Please implement the daqp portfolio optimization solver"
+        )
+        daqp = {"f": self.obj_daqp, "p": self.p, "x": self.w_daqp, "g": self.g_daqp}
 
         daqp_opts = {
-            'discrete': [],
-            'error_on_fail': False,
-            'daqp.iter_limit': 100,
+            "discrete": [],
+            "error_on_fail": False,
+            "daqp.iter_limit": 100,
         }
-        self.daqp_solver = ca.qpsol('solver', 'daqp', daqp, daqp_opts)
+        self.daqp_solver = ca.qpsol("solver", "daqp", daqp, daqp_opts)
 
     def _build_bonmin(self):
         """
@@ -191,18 +212,22 @@ class SparsePortfolioOptimization():
         and `self.ubw_bonmin` data vectors.
         """
 
-        raise NotImplementedError("Please implement the bonmin portfolio optimization solver")
+        raise NotImplementedError(
+            "Please implement the bonmin portfolio optimization solver"
+        )
         bonmin = {
             "f": self.obj_bonmin,
             "p": self.p,
             "x": self.w_bonmin,
-            "g": self.g_bonmin
+            "g": self.g_bonmin,
         }
 
         bonmin_opts = {
-            'discrete': [],
+            "discrete": [],
         }
-        self.bonmin_solver = ca.nlpsol('bonmin_portfolio', 'bonmin', bonmin, bonmin_opts)
+        self.bonmin_solver = ca.nlpsol(
+            "bonmin_portfolio", "bonmin", bonmin, bonmin_opts
+        )
 
     def _build_gurobi(self):
         """
@@ -215,18 +240,20 @@ class SparsePortfolioOptimization():
         and `self.ubw_gurobi` data vectors.
         """
 
-        raise NotImplementedError("Please implement the gurobi portfolio optimization solver")
+        raise NotImplementedError(
+            "Please implement the gurobi portfolio optimization solver"
+        )
         gurobi = {
             "f": self.obj_gurobi,
             "p": self.p,
             "x": self.w_gurobi,
-            "g": self.g_gurobi
+            "g": self.g_gurobi,
         }
 
         gurobi_opts = {
-            'discrete': [],
-            'error_on_fail': False,
+            "discrete": [],
+            "error_on_fail": False,
             #'gurobi.Presolve': 0,
             #'gurobi.Threads': 1,
         }
-        self.gurobi_solver = ca.qpsol('gurobi_portfolio', 'gurobi', gurobi, gurobi_opts)
+        self.gurobi_solver = ca.qpsol("gurobi_portfolio", "gurobi", gurobi, gurobi_opts)
