@@ -111,10 +111,33 @@ class SparsePortfolioOptimization():
         and `self.ubw_ccopt` data vectors.
         """
 
-        raise NotImplementedError("Please implement the ccopt portfolio optimization solver")
+        self.x_plus = ca.SX.sym("x_plus", self.N)
+        self.x_minus = ca.SX.sym("x_minus", self.N)
+        self.x_plus_minus = ca.SX.sym("x_plus_minus", self.N)
+        self.z = ca.SX.sym("z", self.N)
+
+        self.w_ccopt = ca.vertcat(self.x, self.x_plus, self.x_minus, self.x_plus_minus, self.z)
+
+        self.obj_ccopt = self.f_common + self.p_rho* ca.sum1(1 - self.z)
+        self.g_ccopt = ca.vertcat(self.g_common, self.x - self.x_plus + self.x_minus, self.x_plus_minus - self.x_plus - self.x_minus)
+
+        self.cc_pairs_list = []
+        self.cc_types_list = []
+        for i in range(self.N):
+            self.cc_pairs_list.append((self.N + i, 2*self.N + i))
+            self.cc_types_list.append(0) # VARVAR 0 VARCON 1 CONVAR 2 CONCON 3
+            self.cc_pairs_list.append((4*self.N + i, 3*self.N + i))
+            self.cc_types_list.append(0) # VARVAR 0 VARCON 1 CON
+
+        self.lbg_ccopt = ca.vertcat(1, ca.DM.zeros(self.g_ccopt.shape[0] - 1))
+        self.ubg_ccopt = ca.vertcat(1, ca.DM.zeros(self.g_ccopt.shape[0] - 1))
+        self.lbw_ccopt = ca.vertcat(ca.DM.zeros(self.N), ca.DM.zeros(self.N), ca.DM.zeros(self.N), ca.DM.zeros(self.N), ca.DM.zeros(self.N))
+        self.ubw_ccopt = ca.vertcat(10*ca.DM.ones(self.N), 10*ca.DM.ones(self.N), 10*ca.DM.ones(self.N), 20*ca.DM.ones(self.N), ca.DM.ones(self.N))
+
+
         casadi_solver_opts = {
-            "cc_pairs": [],
-            "cc_types": [], #cc_types from libMad: VARVAR 0 VARCON 1 CONVAR 2 CONCON 3
+            "cc_pairs": self.cc_pairs_list,
+            "cc_types": self.cc_types_list, #cc_types from libMad: VARVAR 0 VARCON 1 CONVAR 2 CONCON 3
             "print_time": False,
         }
         casadi_solver_opts["madnlp"] = {
