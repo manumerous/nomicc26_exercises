@@ -154,10 +154,10 @@ class SparsePortfolioOptimization():
 
         left_cc = np.concatenate([
             np.arange(self.N, 2*self.N),
-            np.arange(3*self.N, 4*self.N),
+            np.arange(2*self.N, 3*self.N),
         ])
         right_cc = np.concatenate([
-            np.arange(2*self.N, 3*self.N),
+            np.arange(3*self.N, 4*self.N),
             np.arange(4*self.N, 5*self.N),
         ])
         self.cc_pairs = np.vstack([
