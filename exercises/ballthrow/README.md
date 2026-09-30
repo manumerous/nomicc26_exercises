@@ -1,5 +1,7 @@
 # Exercise 05: Longest throw in a crosswind (single shooting and RK4 with Uno)
 
+A full derivation is in `ball_throw.pdf` (source: `ball_throw.tex`, build with `latexmk -pdf ball_throw.tex`). It covers the continuous optimal control problem, the discretized NLP passed to Uno, the solution with the constants used, and a table that maps each symbol to its name and line in `ball_throw.py`.
+
 The ball is a cricket ball, smooth leather, 156 g and 71 mm across. It is thrown at a fixed speed of 10 m/s from 2 m. A 5 m/s wind blows from the North, and the ball must stay below 10 m. The question: which heading gives the longest throw?
 
 ## Model
@@ -34,6 +36,8 @@ Assumptions (each can be changed with a CLI flag):
 - `--check-jac` compares the RK4 sensitivities with finite differences.
 - `--verify` re-simulates the result with `solve_ivp`, shows RK4 convergence in N, and runs a (θ, ψ) grid search.
 - `--cd 0 --wind 0` reproduces the closed-form drag-free optimum.
+
+A full-space version is in `python ball_throw_colloc.py [--N 200] [--preset ipopt|filtersqp] [--check-derivs] [--compare]`. It uses Hermite–Simpson collocation, so the states are NLP variables and the dynamics are constraints, and it supplies an exact sparse Hessian. `--compare` also solves the single-shooting NLP from each start.
 
 ## Result (default run)
 

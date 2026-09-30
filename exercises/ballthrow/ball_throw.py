@@ -9,6 +9,15 @@ Axes: x = East, y = North, z = Up. Heading psi is a compass bearing (0 = N,
 90 deg = E, clockwise). The only NLP variables are [theta, psi, T]; the trajectory
 comes from N fixed RK4 steps of size h = T/N, with exact derivatives of the
 discrete RK4 map (forward sensitivities).
+
+Notation follows ball_throw.tex / ball_throw.pdf:
+  state    x(t) = (r_E, r_N, r_U, v_E, v_N, v_U)            python: x, traj[i]
+  control  u = (theta, psi), enters only via x(0) = x0(u)    eq. (x0)
+  NLP vars p = (theta, psi, T)                               python: p
+  OCP      min_{u,T} f = -(r_E(T)^2 + r_N(T)^2)
+           s.t. x' = F(x) on [0, T], r_U(T) = 0, 0 <= r_U(t) <= h_max    eq. (ocp)
+  NLP      the same with x_{i+1} = Phi_h(x_i) (RK4), h = T/N, and
+           x_1..x_N eliminated (single shooting)                          eq. (nlp)
 """
 import argparse
 import io
@@ -17,109 +26,113 @@ import numpy as np
 import unopy
 
 Inf = float("inf")
-NP = 3  # NLP variables: theta, psi, T
+NP = 3  # NLP variables p = (theta, psi, T)
 
 
 class Ball:
-    """Physical data and the dynamics s' = F(s), s = (x, y, z, vx, vy, vz)."""
+    """Physical data and the dynamics x' = F(x), x = (r_E, r_N, r_U, v_E, v_N, v_U), eq. (dyn)."""
 
     def __init__(self, args):
-        self.m = args.mass
-        self.d = args.diam
-        self.cd = args.cd
-        self.rho = args.rho
-        self.g = args.g
-        self.v0 = args.v0
-        self.h0 = args.h0
-        self.hmax = args.hmax
-        # wind *from* the North blows toward the South
+        self.m = args.mass     # m    [kg]
+        self.d = args.diam     # d    [m]
+        self.cd = args.cd      # C_d  [-]
+        self.rho = args.rho    # rho  [kg/m^3]
+        self.g0 = args.g       # g_0  [m/s^2] (gravity; g(.) denotes the constraints)
+        self.v0 = args.v0      # v_0  release speed [m/s]
+        self.h0 = args.h0      # h_0  release height [m]
+        self.hmax = args.hmax  # h_max height cap [m]
+        # wind *from* the North blows toward the South: w = (0, -V_w, 0)
         self.w = np.array([0.0, -args.wind, 0.0])
-        area = np.pi * self.d**2 / 4
-        self.k = self.rho * self.cd * area / (2 * self.m)
+        area = np.pi * self.d**2 / 4  # A = pi d^2 / 4
+        self.k = self.rho * self.cd * area / (2 * self.m)  # k = rho C_d A / (2 m), eq. (k)
 
-    def rhs(self, s):
-        u = s[3:] - self.w
-        a = -self.k * np.linalg.norm(u) * u
-        a[2] -= self.g
-        return np.concatenate([s[3:], a])
+    def rhs(self, x):
+        """F(x) = (v, -k |v - w| (v - w) - g_0 e_U), eq. (dyn)."""
+        vrel = x[3:] - self.w  # v_rel = v - w, air-relative velocity
+        a = -self.k * np.linalg.norm(vrel) * vrel
+        a[2] -= self.g0
+        return np.concatenate([x[3:], a])
 
-    def rhs_jac(self, s):
-        """dF/ds (6x6)."""
-        u = s[3:] - self.w
-        nu = np.linalg.norm(u)
+    def rhs_jac(self, x):
+        """dF/dx (6x6), eq. (dFdx): d(-k|v_rel| v_rel)/dv = -k (|v_rel| I + v_rel v_rel^T / |v_rel|)."""
+        vrel = x[3:] - self.w
+        nvrel = np.linalg.norm(vrel)
         J = np.zeros((6, 6))
-        J[:3, 3:] = np.eye(3)
-        if nu > 0:
-            J[3:, 3:] = -self.k * (nu * np.eye(3) + np.outer(u, u) / nu)
+        J[:3, 3:] = np.eye(3)  # d r'/d v = I
+        if nvrel > 0:
+            J[3:, 3:] = -self.k * (nvrel * np.eye(3) + np.outer(vrel, vrel) / nvrel)
         return J
 
     def initial_state(self, theta, psi):
+        """x_0(u) with u = (theta, psi), eq. (x0), and its sensitivity S_0 = d x_0 / d p."""
         ct, st, cp, sp = np.cos(theta), np.sin(theta), np.cos(psi), np.sin(psi)
-        s0 = np.array([0.0, 0.0, self.h0,
+        x0 = np.array([0.0, 0.0, self.h0,
                        self.v0 * ct * sp, self.v0 * ct * cp, self.v0 * st])
-        S0 = np.zeros((6, NP))  # d s0 / d(theta, psi, T)
+        S0 = np.zeros((6, NP))  # d x0 / d(theta, psi, T); the T column is zero
         S0[3:, 0] = self.v0 * np.array([-st * sp, -st * cp, ct])
         S0[3:, 1] = self.v0 * np.array([ct * cp, -ct * sp, 0.0])
-        return s0, S0
+        return x0, S0
 
 
 def rk4_shoot(ball, p, N, sens=True):
     """Integrate N RK4 steps from p = (theta, psi, T).
 
-    Returns the states s_0..s_N (N+1 x 6) and, if sens, the sensitivities
-    S_i = d s_i / d p (N+1 x 6 x 3) of the discrete RK4 map.
+    Returns the states x_0..x_N (N+1 x 6) and, if sens, the sensitivities
+    S_i = d x_i / d p (N+1 x 6 x 3) of the discrete RK4 map, eqs. (rk4), (sens).
     """
     theta, psi, T = p
-    h = T / N
+    h = T / N                          # step size, t_i = i h
     e = np.array([0.0, 0.0, 1.0 / N])  # dh/dp
-    s, S = ball.initial_state(theta, psi)
+    x, S = ball.initial_state(theta, psi)
     traj = np.empty((N + 1, 6))
     sens_all = np.empty((N + 1, 6, NP)) if sens else None
-    traj[0] = s
+    traj[0] = x
     if sens:
         sens_all[0] = S
     F, A = ball.rhs, ball.rhs_jac
     for i in range(N):
-        s1 = s
-        k1 = F(s1)
-        s2 = s + 0.5 * h * k1
-        k2 = F(s2)
-        s3 = s + 0.5 * h * k2
-        k3 = F(s3)
-        s4 = s + h * k3
-        k4 = F(s4)
+        # RK4 stages, eq. (rk4): x_{i+1} = Phi_h(x_i) = x_i + h/6 (k1 + 2 k2 + 2 k3 + k4)
+        x1 = x
+        k1 = F(x1)
+        x2 = x + 0.5 * h * k1
+        k2 = F(x2)
+        x3 = x + 0.5 * h * k2
+        k3 = F(x3)
+        x4 = x + h * k3
+        k4 = F(x4)
         ksum = k1 + 2 * k2 + 2 * k3 + k4
         if sens:
-            dk1 = A(s1) @ S
-            dk2 = A(s2) @ (S + 0.5 * h * dk1 + 0.5 * np.outer(k1, e))
-            dk3 = A(s3) @ (S + 0.5 * h * dk2 + 0.5 * np.outer(k2, e))
-            dk4 = A(s4) @ (S + h * dk3 + np.outer(k3, e))
+            # differentiate each stage w.r.t. p (chain rule through x_i and h), eq. (sens)
+            dk1 = A(x1) @ S
+            dk2 = A(x2) @ (S + 0.5 * h * dk1 + 0.5 * np.outer(k1, e))
+            dk3 = A(x3) @ (S + 0.5 * h * dk2 + 0.5 * np.outer(k2, e))
+            dk4 = A(x4) @ (S + h * dk3 + np.outer(k3, e))
             S = S + h / 6 * (dk1 + 2 * dk2 + 2 * dk3 + dk4) + np.outer(ksum, e) / 6
             sens_all[i + 1] = S
-        s = s + h / 6 * ksum
-        traj[i + 1] = s
+        x = x + h / 6 * ksum
+        traj[i + 1] = x
     return traj, sens_all
 
 
 class ShootingNLP:
-    """Uno callbacks for min -(x_N^2 + y_N^2).
+    """Uno callbacks for the NLP (nlp): min f(p) = -(r_{E,N}^2 + r_{N,N}^2).
 
-    Constraint rows: 0 is landing, z_N = 0; rows 1..N-1 are 0 <= z_i <= hmax.
+    Constraint rows g(p): 0 is landing, r_{U,N} = 0; rows 1..N-1 are 0 <= r_{U,i} <= hmax.
     One RK4 pass is cached per iterate and shared by all callbacks.
     """
 
     def __init__(self, ball, N):
         self.ball, self.N = ball, N
-        self.m = N
-        self.cl = np.concatenate([[0.0], np.zeros(N - 1)])
-        self.cu = np.concatenate([[0.0], np.full(N - 1, ball.hmax)])
-        # dense (m x 3) Jacobian, row-major triplets
-        self.jac_rows = np.repeat(np.arange(self.m), NP).tolist()
-        self.jac_cols = np.tile(np.arange(NP), self.m).tolist()
+        self.n_con = N  # number of constraint rows
+        self.cl = np.concatenate([[0.0], np.zeros(N - 1)])            # g_L
+        self.cu = np.concatenate([[0.0], np.full(N - 1, ball.hmax)])  # g_U
+        # dense (n_con x 3) Jacobian, row-major triplets
+        self.jac_rows = np.repeat(np.arange(self.n_con), NP).tolist()
+        self.jac_cols = np.tile(np.arange(NP), self.n_con).tolist()
         self._key = None
 
-    def _eval(self, x):
-        p = np.asarray(x[:NP], dtype=float)
+    def _eval(self, p):
+        p = np.asarray(p[:NP], dtype=float)
 
         key = p.tobytes()
         if key != self._key:
@@ -127,37 +140,43 @@ class ShootingNLP:
             self._key = key
         return self._traj, self._sens
 
-    def objective(self, x):
-        traj, _ = self._eval(x)
+    def objective(self, p):
+        """f(p) = -(r_{E,N}^2 + r_{N,N}^2), minus the squared range."""
+        traj, _ = self._eval(p)
         return -(traj[-1, 0]**2 + traj[-1, 1]**2)
 
-    def gradient(self, x, g):
-        traj, S = self._eval(x)
-        g[:] = -2 * (traj[-1, 0] * S[-1, 0] + traj[-1, 1] * S[-1, 1])
+    def gradient(self, p, grad):
+        """grad f(p) = -2 (r_{E,N} dr_{E,N}/dp + r_{N,N} dr_{N,N}/dp), rows of S_N."""
+        traj, S = self._eval(p)
+        grad[:] = -2 * (traj[-1, 0] * S[-1, 0] + traj[-1, 1] * S[-1, 1])
 
-    def constraints(self, x, c):
-        traj, _ = self._eval(x)
+    def constraints(self, p, c):
+        """g(p) = (r_{U,N}, r_{U,1}, ..., r_{U,N-1})."""
+        traj, _ = self._eval(p)
         c[0] = traj[-1, 2]
         c[1:] = traj[1:-1, 2]
 
-    def jacobian(self, x, vals):
-        _, S = self._eval(x)
+    def jacobian(self, p, vals):
+        """dg/dp, the r_U rows of S_N, S_1, ..., S_{N-1} (dense n_con x 3)."""
+        _, S = self._eval(p)
         J = np.vstack([S[-1, 2][None, :], S[1:-1, 2]])
         vals[:] = J.ravel()
 
 
 def solve_one(nlp, p0, verbose=False):
+    """Solve the NLP (nlp) with Uno from the start point p0."""
     ball = nlp.ball
-    lb = [0.0, 0.0, 0.1]
-    ub = [np.pi / 2, 2 * np.pi, 5.0]
+    lb = [0.0, 0.0, 0.1]              # p_L: theta >= 0, psi >= 0, T >= 0.1 s
+    ub = [np.pi / 2, 2 * np.pi, 5.0]  # p_U: theta <= pi/2, psi <= 2 pi, T <= 5 s
     model = unopy.Model(unopy.PROBLEM_NONLINEAR, NP, unopy.ZERO_BASED_INDEXING)
     model.set_variables_lower_bounds(lb)
     model.set_variables_upper_bounds(ub)
     model.set_objective(unopy.MINIMIZE, nlp.objective, nlp.gradient)
-    model.set_constraints(nlp.m, nlp.constraints, nlp.cl.tolist(), nlp.cu.tolist(),
+    model.set_constraints(nlp.n_con, nlp.constraints, nlp.cl.tolist(), nlp.cu.tolist(),
                           len(nlp.jac_rows), nlp.jac_rows, nlp.jac_cols, nlp.jacobian)
     model.set_initial_primal_iterate(list(p0))
 
+    # no Hessian callback is given, so Uno approximates the Hessian (quasi-Newton)
     solver = unopy.UnoSolver()
     if not verbose:
         solver.set_logger_stream(io.StringIO())
@@ -170,11 +189,13 @@ def solve_one(nlp, p0, verbose=False):
 
 
 def no_drag_flight_time(ball, theta):
+    """Drag-free flight time from h_0, used as the initial guess T_0."""
     vz = ball.v0 * np.sin(theta)
-    return (vz + np.sqrt(vz**2 + 2 * ball.g * ball.h0)) / ball.g
+    return (vz + np.sqrt(vz**2 + 2 * ball.g0 * ball.h0)) / ball.g0
 
 
 def multistart(nlp, verbose=False):
+    """Solve from a grid of (psi_0, theta_0): upwind and downwind throws are both KKT points."""
     best = None
     print(f"{'psi0':>6} {'theta0':>6} | {'status':<22} {'psi':>8} {'theta':>7} {'T':>6} {'range':>8}")
     for psi0 in (0, 90, 180, 270):
@@ -195,44 +216,45 @@ def multistart(nlp, verbose=False):
 # ---------------------------------------------------------------- verification
 
 def check_jac(nlp, seed=0):
+    """Compare grad f and dg/dp from eq. (sens) with central finite differences."""
     rng = np.random.default_rng(seed)
     p = np.array([rng.uniform(0.2, 1.2), rng.uniform(0, 2 * np.pi), rng.uniform(0.8, 2.0)])
-    g = np.zeros(NP)
-    nlp.gradient(p, g)
-    J = np.zeros(nlp.m * NP)
+    grad = np.zeros(NP)
+    nlp.gradient(p, grad)
+    J = np.zeros(nlp.n_con * NP)
     nlp.jacobian(p, J)
-    J = J.reshape(nlp.m, NP)
+    J = J.reshape(nlp.n_con, NP)
     gfd = np.zeros(NP)
-    Jfd = np.zeros((nlp.m, NP))
+    Jfd = np.zeros((nlp.n_con, NP))
     for j in range(NP):
         dp = np.zeros(NP)
         dp[j] = 1e-6
-        cp, cm = np.zeros(nlp.m), np.zeros(nlp.m)
+        cp, cm = np.zeros(nlp.n_con), np.zeros(nlp.n_con)
         nlp.constraints(p + dp, cp)
         nlp.constraints(p - dp, cm)
         Jfd[:, j] = (cp - cm) / 2e-6
         gfd[j] = (nlp.objective(p + dp) - nlp.objective(p - dp)) / 2e-6
-    eg = np.max(np.abs(g - gfd)) / max(1.0, np.max(np.abs(gfd)))
+    eg = np.max(np.abs(grad - gfd)) / max(1.0, np.max(np.abs(gfd)))
     eJ = np.max(np.abs(J - Jfd)) / max(1.0, np.max(np.abs(Jfd)))
     print(f"check-jac at p={np.round(p, 4)}: gradient rel err {eg:.2e}, Jacobian rel err {eJ:.2e}")
 
 
 def simulate_ivp(ball, theta, psi):
-    """Reference trajectory with an adaptive integrator and a ground-hit event."""
+    """Reference trajectory of x' = F(x) with an adaptive integrator and a ground-hit event."""
     from scipy.integrate import solve_ivp
-    s0, _ = ball.initial_state(theta, psi)
+    x0, _ = ball.initial_state(theta, psi)
 
-    def ground(t, s):
-        return s[2]
+    def ground(t, x):
+        return x[2]  # r_U(t) = 0
     ground.terminal, ground.direction = True, -1
-    return solve_ivp(lambda t, s: ball.rhs(s), (0, 10), s0, events=ground,
+    return solve_ivp(lambda t, x: ball.rhs(x), (0, 10), x0, events=ground,
                      rtol=1e-11, atol=1e-11, dense_output=True)
 
 
 def ivp_range(ball, theta, psi):
     sol = simulate_ivp(ball, theta, psi)
-    s = sol.y_events[0][0]
-    return np.hypot(s[0], s[1]), sol.t_events[0][0], np.max(sol.y[2])
+    x = sol.y_events[0][0]
+    return np.hypot(x[0], x[1]), sol.t_events[0][0], np.max(sol.y[2])
 
 
 def verify(ball, p, rng_nlp, N):
@@ -241,7 +263,7 @@ def verify(ball, p, rng_nlp, N):
     print(f"\nre-simulation (solve_ivp): range {r:.6f} m, flight time {t:.6f} s, peak {zmax:.4f} m")
     print(f"  NLP (RK4, N={N}) minus solve_ivp: range {rng_nlp - r:+.2e} m, T {T - t:+.2e} s")
     for n in (25, 50, 100, 200, 400):
-        # RK4 range with (theta, psi) fixed and T from the ground crossing (Newton on z_N(T) = 0)
+        # RK4 range with (theta, psi) fixed and T from the ground crossing (Newton on r_{U,N}(T) = 0)
         TT = T
         for _ in range(20):
             traj, S = rk4_shoot(ball, (theta, psi, TT), n)
