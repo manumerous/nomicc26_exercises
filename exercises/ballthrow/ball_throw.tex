@@ -1,0 +1,500 @@
+\documentclass[11pt]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs,longtable}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!60!black,urlcolor=blue!60!black]{hyperref}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\py}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\ve}{e_{U}}
+
+\title{Longest Throw in a Crosswind:\\ Optimal Control Problem, Discretization, and Code}
+\author{NOMICC 2026 exercises --- \texttt{exercises/ballthrow/ball\_throw.py}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Problem}
+
+A cricket ball (smooth leather, mass $m = 156$\,g, diameter $d = 71$\,mm) is thrown with a fixed
+release speed $v_0 = 10$\,m/s from a height $h_0 = 2$\,m. A wind of speed $V_w = 5$\,m/s blows
+\emph{from} the North, and the ball may never rise above $h_{\max} = 10$\,m.
+Which compass heading and elevation give the longest throw, measured as the horizontal distance
+from the thrower to the landing point?
+
+\paragraph{Axes and angles.} We use a local East--North--Up frame with unit vectors
+$e_E, e_N, e_U$. The heading $\psi$ is a compass bearing ($\psi=0$ is North, $\psi=\pi/2$ is East,
+measured clockwise), and $\theta$ is the elevation above the horizon. Wind from the North
+blows toward the South, so the wind velocity is $w = (0,-V_w,0)^\top$.
+
+\section{The infinite-dimensional optimal control problem}
+
+\paragraph{Time, states, controls.}
+Time is $t \in [0,T]$, and the flight time $T>0$ is free. The state is
+\[
+  x(t) = \begin{pmatrix} r(t) \\ v(t) \end{pmatrix} \in \R^6,\qquad
+  r = (r_E, r_N, r_U)^\top,\quad v = (v_E, v_N, v_U)^\top,
+\]
+with position $r$ [m] and velocity $v$ [m/s]. The only thing the thrower chooses is the release
+direction, so the control is the constant vector
+\[
+  u = (\theta,\psi)^\top \in U := [0,\pi/2]\times[0,2\pi].
+\]
+It enters the problem only through the initial condition. There is no control
+$u(t)$ acting during the flight.
+
+\paragraph{Dynamics.} The ball is subject to gravity and to quadratic aerodynamic drag that acts on
+the \emph{air-relative} velocity $v_{\mathrm{rel}} = v - w$:
+\begin{equation}
+  \dot x = F(x) :=
+  \begin{pmatrix} v \\ -k\,\|v-w\|\,(v-w) - g_0\,\ve \end{pmatrix},
+  \tag{dyn}\label{eq:dyn}
+\end{equation}
+with the drag constant
+\begin{equation}
+  k = \frac{\rho\, C_d\, A}{2m},\qquad A = \frac{\pi d^2}{4}.
+  \tag{k}\label{eq:k}
+\end{equation}
+We write gravity as $g_0$ so that it is not confused with the constraint function $g(\cdot)$.
+The drag coefficient $C_d = 0.47$ is the value for a smooth sphere at subcritical Reynolds number
+($\mathrm{Re} \approx 7\times10^4$ here). The Jacobian of $F$, which the derivatives in
+Section~\ref{sec:disc} need, is
+\begin{equation}
+  \frac{\partial F}{\partial x}(x) =
+  \begin{pmatrix} 0 & I_3 \\ 0 & -k\Bigl(\|v_{\mathrm{rel}}\|\, I_3
+      + \dfrac{v_{\mathrm{rel}}v_{\mathrm{rel}}^\top}{\|v_{\mathrm{rel}}\|}\Bigr)\end{pmatrix},
+  \qquad v_{\mathrm{rel}} = v - w \neq 0.
+  \tag{dFdx}\label{eq:dFdx}
+\end{equation}
+
+\paragraph{Initial state.} The ball leaves the hand at the origin at height $h_0$ with speed $v_0$:
+\begin{equation}
+  x(0) = x_0(u) :=
+  \bigl(0,\; 0,\; h_0,\; v_0\cos\theta\sin\psi,\; v_0\cos\theta\cos\psi,\; v_0\sin\theta\bigr)^\top.
+  \tag{x0}\label{eq:x0}
+\end{equation}
+
+\paragraph{Objective.} We maximize the squared horizontal range at the landing time. This is
+written as the minimization of
+\[
+  f\bigl(x(T)\bigr) := -\bigl(r_E(T)^2 + r_N(T)^2\bigr).
+\]
+
+\paragraph{Constraints.} The ball lands at $t=T$ and stays between the ground and the height cap
+while it is in flight:
+\[
+  g_{\mathrm{term}}\bigl(x(T)\bigr) := r_U(T) = 0,\qquad
+  0 \le g_{\mathrm{path}}\bigl(x(t)\bigr) := r_U(t) \le h_{\max},\quad t\in(0,T).
+\]
+
+\paragraph{OCP.} Collecting everything, the optimal control problem is
+\begin{equation}
+\begin{aligned}
+  \min_{u,\;T}\quad & f\bigl(x(T)\bigr) = -\bigl(r_E(T)^2 + r_N(T)^2\bigr)\\
+  \text{s.t.}\quad & \dot x(t) = F\bigl(x(t)\bigr), && t\in[0,T],\\
+  & x(0) = x_0(u),\\
+  & g_{\mathrm{term}}\bigl(x(T)\bigr) = r_U(T) = 0,\\
+  & 0 \le g_{\mathrm{path}}\bigl(x(t)\bigr) = r_U(t) \le h_{\max}, && t\in(0,T),\\
+  & u \in U,\quad T \in [T_{\min}, T_{\max}] = [0.1, 5]\ \mathrm{s}.
+\end{aligned}
+\tag{ocp}\label{eq:ocp}
+\end{equation}
+Since $F$ does not depend on $u$ and $u$ is constant, \eqref{eq:ocp} is really a
+three-dimensional optimization over $(\theta,\psi,T)$ that is constrained by an ODE. This is what
+makes single shooting attractive.
+
+\section{Discretization: the NLP passed to Uno}\label{sec:disc}
+
+\paragraph{Grid and RK4.} Fix $N$ (default $N=200$) and let $h = T/N$ and $t_i = i h$ for
+$i=0,\dots,N$. The step size depends on the decision variable $T$. One classical Runge--Kutta
+step is $x_{i+1} = \Phi_h(x_i)$, where
+\begin{equation}
+\begin{aligned}
+  k_1 &= F(x_i), & k_2 &= F\bigl(x_i + \tfrac h2 k_1\bigr),\\
+  k_3 &= F\bigl(x_i + \tfrac h2 k_2\bigr), & k_4 &= F\bigl(x_i + h k_3\bigr),\\
+  \Phi_h(x_i) &= x_i + \tfrac h6\bigl(k_1 + 2k_2 + 2k_3 + k_4\bigr).
+\end{aligned}
+\tag{rk4}\label{eq:rk4}
+\end{equation}
+
+\paragraph{Single shooting.} The NLP variables are
+\[
+  p = (u, T) = (\theta, \psi, T)^\top \in \R^3 .
+\]
+Starting from $x_0 = x_0(u)$, the recursion \eqref{eq:rk4} defines every
+$x_i = x_i(p)$, so the states are eliminated and do not appear as NLP variables. With
+$x_i = (r_{E,i}, r_{N,i}, r_{U,i}, v_{E,i}, v_{N,i}, v_{U,i})^\top$ the discretized problem is
+\begin{equation}
+\begin{aligned}
+  \min_{p\in\R^3}\quad & f(p) := -\bigl(r_{E,N}(p)^2 + r_{N,N}(p)^2\bigr)\\
+  \text{s.t.}\quad & g_L \le g(p) \le g_U, \qquad
+  g(p) := \begin{pmatrix} r_{U,N}(p)\\ r_{U,1}(p)\\ \vdots\\ r_{U,N-1}(p)\end{pmatrix}\in\R^N,\quad
+  g_L = \begin{pmatrix}0\\0\\ \vdots\\ 0\end{pmatrix},\;
+  g_U = \begin{pmatrix}0\\h_{\max}\\ \vdots\\ h_{\max}\end{pmatrix},\\
+  & p_L \le p \le p_U,\qquad p_L = (0,\,0,\,0.1)^\top,\quad p_U = (\pi/2,\,2\pi,\,5)^\top .
+\end{aligned}
+\tag{nlp}\label{eq:nlp}
+\end{equation}
+Row $0$ of $g$ is the landing condition $r_{U,N}=0$. Rows $1,\dots,N-1$ enforce the path
+constraint at the interior grid points only. The problem has $3$ variables and $N$ constraints.
+
+\paragraph{What Uno sees: single shooting.} Problem \eqref{eq:nlp} is a \emph{single-shooting}
+discretization of \eqref{eq:ocp}. The discrete states $x_1,\dots,x_N$ have been eliminated: they are
+not NLP variables but functions $x_i(p)$ of the three decision variables, which the RK4 recursion
+\eqref{eq:rk4} computes inside every function evaluation. Uno therefore sees
+\begin{itemize}
+  \item $n = 3$ variables $p = (\theta,\psi,T)$ with simple bounds $p_L \le p \le p_U$;
+  \item $m = N$ constraints: $1$ equality (the landing condition $r_{U,N}(p) = 0$) and $N-1$
+        two-sided inequalities $0 \le r_{U,i}(p) \le h_{\max}$. For $N = 200$ this is the
+        $1 + 199$ reported in the Uno log;
+  \item a dense $N\times3$ constraint Jacobian and no Hessian.
+\end{itemize}
+Every evaluation of $f$, $g$ or their derivatives integrates the whole trajectory from $t=0$, which
+the code caches once per iterate. The dynamics hold exactly at every iterate because they are
+built into the functions. The price is that $f$ and $g$ are highly nonlinear compositions of $N$
+RK4 steps. Section~\ref{sec:hs} states the same problem in the full space, where the states stay
+as variables and the dynamics become constraints.
+
+\paragraph{Exact derivatives (forward sensitivities).} Uno needs $\nabla f(p)$ and the dense
+$N\times 3$ Jacobian $\nabla g(p)^\top$. These are the exact derivatives of the \emph{discrete}
+map \eqref{eq:rk4}, not of the ODE. Let $S_i := \partial x_i/\partial p \in \R^{6\times 3}$,
+$A(\cdot) := \partial F/\partial x$ from \eqref{eq:dFdx}, and
+$\epsilon := \partial h/\partial p = (0,0,1/N)^\top$. Then
+$S_0 = \partial x_0/\partial p$, where
+\begin{align*}
+  \frac{\partial x_0}{\partial\theta} &= v_0\bigl(0,0,0,-\sin\theta\sin\psi,-\sin\theta\cos\psi,\cos\theta\bigr)^\top,\\
+  \frac{\partial x_0}{\partial\psi} &= v_0\bigl(0,0,0,\cos\theta\cos\psi,-\cos\theta\sin\psi,0\bigr)^\top,\qquad
+  \frac{\partial x_0}{\partial T} = 0,
+\end{align*}
+and, differentiating every stage of \eqref{eq:rk4} by the chain rule (through $x_i$ and $h$),
+\begin{equation}
+\begin{aligned}
+  K_1 &= A(x_i)\,S_i, \\
+  K_2 &= A\bigl(x_i+\tfrac h2 k_1\bigr)\bigl(S_i + \tfrac h2 K_1 + \tfrac12 k_1\epsilon^\top\bigr),\\
+  K_3 &= A\bigl(x_i+\tfrac h2 k_2\bigr)\bigl(S_i + \tfrac h2 K_2 + \tfrac12 k_2\epsilon^\top\bigr),\\
+  K_4 &= A\bigl(x_i+h k_3\bigr)\bigl(S_i + h K_3 + k_3\epsilon^\top\bigr),\\
+  S_{i+1} &= S_i + \tfrac h6\bigl(K_1+2K_2+2K_3+K_4\bigr) + \tfrac16\bigl(k_1+2k_2+2k_3+k_4\bigr)\epsilon^\top .
+\end{aligned}
+\tag{sens}\label{eq:sens}
+\end{equation}
+With these, $\nabla f(p) = -2\bigl(r_{E,N}\,S_N[r_E,:] + r_{N,N}\,S_N[r_N,:]\bigr)^\top$. The rows of
+$\nabla g^\top$ are the $r_U$ rows $S_N[r_U,:], S_1[r_U,:],\dots,S_{N-1}[r_U,:]$. Here $S_i[r_U,:]$
+denotes the row of $S_i$ that belongs to the state component $r_U$.
+
+\paragraph{Solver.} Problem \eqref{eq:nlp} is solved with Uno using the \texttt{filtersqp} preset and
+the QP solver BQPD. No Hessian is supplied, so Uno uses a quasi-Newton approximation.
+\eqref{eq:nlp} is nonconvex: throwing straight downwind and straight upwind both give KKT points.
+The code therefore runs a multistart over $\psi_0\in\{0^\circ,90^\circ,180^\circ,270^\circ\}$ and
+$\theta_0\in\{30^\circ,45^\circ,60^\circ\}$. Each start uses
+$T_0 = \bigl(v_0\sin\theta_0 + \sqrt{v_0^2\sin^2\theta_0 + 2g_0h_0}\bigr)/g_0$, the drag-free flight time,
+and the run keeps the converged point with the largest range.
+
+\section{Illustrative solution}
+
+Table~\ref{tab:const} lists the constants of the default run
+(\texttt{python ball\_throw.py --check-jac --verify --plot}, Uno 2.7.4).
+Each constant can be changed with a command-line flag.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llrl}
+\toprule
+Symbol & Meaning & Value & CLI flag\\
+\midrule
+$m$ & ball mass & $0.156$ kg & \texttt{--mass}\\
+$d$ & ball diameter & $0.071$ m & \texttt{--diam}\\
+$C_d$ & drag coefficient (smooth sphere) & $0.47$ & \texttt{--cd}\\
+$\rho$ & air density & $1.225$ kg/m$^3$ & \texttt{--rho}\\
+$g_0$ & gravitational acceleration & $9.81$ m/s$^2$ & \texttt{--g}\\
+$v_0$ & release speed & $10$ m/s & \texttt{--v0}\\
+$h_0$ & release height & $2$ m & \texttt{--h0}\\
+$h_{\max}$ & height cap & $10$ m & \texttt{--hmax}\\
+$V_w$ & wind speed (from the North) & $5$ m/s & \texttt{--wind}\\
+$N$ & number of RK4 steps & $200$ & \texttt{--N}\\
+\midrule
+$A$ & cross-section $\pi d^2/4$ & $3.959\times10^{-3}$ m$^2$ & derived\\
+$k$ & drag constant \eqref{eq:k} & $7.3061\times10^{-3}$ 1/m & derived\\
+\bottomrule
+\end{tabular}
+\caption{Constants of the default run.}\label{tab:const}
+\end{table}
+
+\paragraph{Result.} All $12$ multistart runs converge. The $3$ starts from $\psi_0=0^\circ$ end at the
+upwind KKT point, and the other $9$ end at the downwind optimum:
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+ & $\psi$ & $\theta$ & $T$ & range & peak $\max_i r_{U,i}$\\
+\midrule
+optimum (downwind) & $180^\circ$ & $40.186^\circ$ & $1.5678$ s & $11.8747$ m & $4.085$ m\\
+upwind KKT point & $0^\circ$ & $37.838^\circ$ & $1.504$ s & $10.5737$ m & ---\\
+\bottomrule
+\end{tabular}
+\end{center}
+The height cap $h_{\max}=10$ m is inactive, and the landing constraint is the only active
+constraint. The derivative check against central finite differences gives relative errors of
+$4\times10^{-10}$ (gradient) and $7\times10^{-10}$ (Jacobian). Re-simulating the optimal
+$(\theta,\psi)$ with an adaptive integrator (\texttt{solve\_ivp} with a ground-hit event) agrees
+with the NLP to $4\times10^{-11}$ m in range. A brute-force grid search over $(\theta,\psi)$ finds no
+better throw. Figure~\ref{fig:traj} shows the optimal trajectory.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{ball_throw.png}
+\caption{Optimal throw for the constants in Table~\ref{tab:const}. Left: 3D trajectory. Right: ground
+track, with the wind blowing toward the South.}\label{fig:traj}
+\end{figure}
+
+\section{Full-space alternative: Hermite--Simpson collocation}\label{sec:hs}
+
+The script \texttt{ball\_throw\_colloc.py} solves the same OCP \eqref{eq:ocp} in the \emph{full
+space}. The states stay as NLP variables and the dynamics become equality constraints. An exactly
+equivalent full-space version of \eqref{eq:nlp} would impose $x_{i+1} = \Phi_h(x_i)$ as
+constraints (multiple shooting with one RK4 step per interval). Explicit RK4 is not a collocation
+method, however: collocation methods are implicit Runge--Kutta schemes. We therefore use
+Hermite--Simpson (HS) collocation. It is the 3-point Lobatto IIIA scheme, which has the same order
+$4$ as RK4, so the two discretizations agree up to $\mathcal{O}(h^4)$ rather than bit for bit.
+
+\paragraph{Collocation equations.} On the same grid $t_i = ih$, $h = T/N$, add a midpoint state
+$x_{i+\frac12}\approx x(t_i + h/2)$ on every interval and write $F_i = F(x_i)$ and
+$F_{i+\frac12} = F(x_{i+\frac12})$. The HS scheme requires, for $i = 0,\dots,N-1$,
+\begin{equation}
+\begin{aligned}
+  c^{H}_i &:= x_{i+\frac12} - \tfrac12\bigl(x_i + x_{i+1}\bigr) - \tfrac h8\bigl(F_i - F_{i+1}\bigr) = 0
+      &&\text{(Hermite interpolation at the midpoint)},\\
+  c^{S}_i &:= x_{i+1} - x_i - \tfrac h6\bigl(F_i + 4F_{i+\frac12} + F_{i+1}\bigr) = 0
+      &&\text{(Simpson quadrature of } \dot x = F(x)).
+\end{aligned}
+\tag{hs}\label{eq:hs}
+\end{equation}
+The first equation makes the cubic Hermite interpolant through $(x_i,F_i)$ and $(x_{i+1},F_{i+1})$
+pass through $x_{i+\frac12}$. The second requires the interpolant to satisfy the ODE at the
+midpoint.
+
+\paragraph{The NLP.} The variables are
+$z = \bigl(\theta,\psi,T,\,x_0,\dots,x_N,\,x_{\frac12},\dots,x_{N-\frac12}\bigr)\in\R^{n}$ with
+$n = 3 + 6(2N+1)$, and the problem is
+\begin{equation}
+\begin{aligned}
+  \min_{z}\quad & f(z) = -\bigl(r_{E,N}^2 + r_{N,N}^2\bigr)\\
+  \text{s.t.}\quad & x_0 - x_0(\theta,\psi) = 0,\qquad c^H_i = 0,\quad c^S_i = 0,\quad i = 0,\dots,N-1,\\
+  & 0 \le r_{U,i} \le h_{\max}\ (i = 1,\dots,N-1),\qquad r_{U,N} = 0,\qquad p_L \le p \le p_U .
+\end{aligned}
+\tag{nlp-hs}\label{eq:nlp-hs}
+\end{equation}
+There are $m = 6 + 12N$ equality constraints, all of them dynamics. The path and landing
+constraints of \eqref{eq:nlp} are now \emph{simple bounds} on state variables, because $r_{U,i}$ is
+itself a variable. As in \eqref{eq:nlp}, the path constraint is imposed at the nodes $1,\dots,N-1$.
+Since $n - m = 3$, the problem has the same three degrees of freedom $(\theta,\psi,T)$ as the
+shooting NLP.
+
+\paragraph{Sparse exact derivatives.} Each pair $(c^H_i, c^S_i)$ depends only on $x_i$,
+$x_{i+\frac12}$, $x_{i+1}$ and $T$. The Jacobian therefore consists of $6\times6$ blocks
+$-\tfrac12 I \mp \tfrac h8 A(x)$, $I$, $\pm I - \tfrac h6 A(x)$ and $-\tfrac{4h}{6}A(x_{i+\frac12})$, plus a
+dense $T$ column $-\tfrac1{8N}(F_i - F_{i+1})$, $-\tfrac1{6N}(F_i + 4F_{i+\frac12} + F_{i+1})$. The
+$(\theta,\psi)$ columns appear only in the initial condition. Unlike the shooting code, this
+version supplies the exact Hessian of the Lagrangian
+$\sigma\nabla^2 f + \sum_j \lambda_j \nabla^2 c_j$ (Uno's \texttt{MULTIPLIER\_POSITIVE} convention).
+The HS equations contain $F$ only in terms of the form $h\,\nu^\top F(x)$. The weights are
+$\nu_{i+\frac12} = -\tfrac23\lambda^S_i$ for a midpoint and
+$\nu_i = -\tfrac18\lambda^H_i - \tfrac16\lambda^S_i + \tfrac18\lambda^H_{i-1} - \tfrac16\lambda^S_{i-1}$ for a
+node, where the terms of a missing neighbouring interval are dropped. Since $\dot r = v$ is linear,
+only the velocity block of the drag term contributes. For $\mu\in\R^3$,
+\begin{equation}
+  \sum_{j=1}^3 \mu_j \frac{\partial^2 a_j}{\partial v^2}
+  = -k\Bigl[\frac{\mu v_{\mathrm{rel}}^\top + v_{\mathrm{rel}}\mu^\top + (\mu^\top v_{\mathrm{rel}})I_3}{\|v_{\mathrm{rel}}\|}
+  - \frac{(\mu^\top v_{\mathrm{rel}})\,v_{\mathrm{rel}}v_{\mathrm{rel}}^\top}{\|v_{\mathrm{rel}}\|^3}\Bigr],
+  \qquad a(v) = -k\|v_{\mathrm{rel}}\|v_{\mathrm{rel}}.
+  \tag{d2F}\label{eq:d2F}
+\end{equation}
+Each node and each midpoint contributes one $3\times3$ block $h\cdot$\eqref{eq:d2F} with
+$\mu = \nu_v$ and a cross term $\partial^2/\partial T\,\partial v = \tfrac1N (A^\top\nu)_v$. The
+initial condition contributes the $2\times2$ block $-\lambda_0^\top \partial^2 x_0/\partial u^2$, and the
+objective contributes $-2\sigma$ on $r_{E,N}$ and $r_{N,N}$. At $N=200$ the Hessian is block
+diagonal with $3614$ nonzeros in its lower triangle.
+
+\paragraph{Initial guess and solver.} Each multistart point $p_0 = (\theta_0,\psi_0,T_0)$ is the
+same as for shooting, and no auxiliary solve is used to lift it to a full $z_0$. The nodes come
+from one RK4 pass \eqref{eq:rk4} of $N$ steps with $h = T_0/N$, starting at $x_0(\theta_0,\psi_0)$.
+Of the two equations in \eqref{eq:hs}, the Hermite equation is \emph{explicit} in the midpoint
+once the nodes are known, whereas the Simpson equation is implicit. We therefore set
+\[
+  x_{i+\frac12} := \tfrac12\bigl(x_i + x_{i+1}\bigr) + \tfrac h8\bigl(F_i - F_{i+1}\bigr),
+\]
+so that $c^H(z_0) = 0$ exactly. The Simpson residual is the $\mathcal{O}(h^5)$ local mismatch between RK4
+and HS: over the $12$ starts, $\max|c^H| = 9\times10^{-16}$ and $\max|c^S| = 1\times10^{-13}$. The
+guess is not clipped to the bounds. Because the drag-free $T_0$ is too long, the ball is already
+below the ground at $t = T_0$, and the landing bound $r_{U,N} = 0$ is violated by up to $0.35$ m;
+Uno has to repair this. Uno is run with the \texttt{ipopt} preset (interior point, MUMPS) by
+default, or with \texttt{--preset filtersqp}.
+
+\paragraph{Comparison.} Table~\ref{tab:cmp} compares the two formulations at $N=200$. The data come
+from \texttt{python ball\_throw\_colloc.py --check-derivs --compare} and from
+\texttt{--preset filtersqp}. The derivative check (at $N=6$) gives relative errors of
+$7\times10^{-10}$, $1\times10^{-10}$ and $1\times10^{-10}$ for the gradient, the Jacobian and the
+Hessian.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+ & single shooting \eqref{eq:nlp} & \multicolumn{2}{c}{HS collocation \eqref{eq:nlp-hs}}\\
+ & \texttt{filtersqp} & \texttt{ipopt} preset & \texttt{filtersqp}\\
+\midrule
+variables $n$ & $3$ & \multicolumn{2}{c}{$2409$}\\
+constraints $m$ & $200$ ($1$ eq., $199$ ineq.) & \multicolumn{2}{c}{$2406$ equalities}\\
+Jacobian nonzeros & $600$ (dense) & \multicolumn{2}{c}{$20412$}\\
+Hessian & quasi-Newton & \multicolumn{2}{c}{exact, $3614$ nonzeros}\\
+iterations / CPU s, start $(\psi_0,\theta_0) = (180^\circ,45^\circ)$ & $5$ / $0.09$ & $7$ / $0.14$ & $6$ / $1.2$\\
+CPU s, all $12$ starts & $1.6$ & $9.9$ & $93$\\
+starts reaching the optimum & $9/12$ & $10/12$ & $6/12$\\
+\midrule
+$\psi^*$, $\theta^*$, $T^*$ & \multicolumn{3}{c}{$180^\circ$, $40.1862^\circ$, $1.5678$ s (all three)}\\
+range $-$ \texttt{solve\_ivp} range & $+4.2\times10^{-11}$ m & \multicolumn{2}{c}{$+3.8\times10^{-11}$ m}\\
+\bottomrule
+\end{tabular}
+\caption{Single shooting versus Hermite--Simpson collocation at $N=200$ (Uno 2.7.4). CPU times
+include the Python callbacks, which dominate for the collocation NLP.}\label{tab:cmp}
+\end{table}
+
+\paragraph{Observations.}
+\begin{itemize}
+  \item Both discretizations give the same optimum to the printed digits. Both agree with an
+        adaptive re-simulation to about $4\times10^{-11}$ m, so at $N=200$ the discretization error is
+        negligible for either scheme. (HS with only $N=20$ already reproduces the range
+        $11.8747$ m.)
+  \item Shooting is cheaper here because the problem has only three degrees of freedom and a
+        short, non-stiff horizon. The full-space NLP pays for about $2400$ variables and Python
+        callbacks. Its structure (sparse, block banded, with the dynamics as constraints)
+        is what pays off for long horizons, unstable dynamics or many controls.
+  \item The full-space NLP finds \emph{different} KKT points from the same starts. Besides the upwind
+        point ($\psi=0^\circ$, $10.574$ m), the active-set (\texttt{filtersqp}) runs end $4$ times at the \emph{vertical throw}
+        $\theta = 90^\circ$ (range $0.607$ m, all of it wind drift). There $\theta$ sits at its upper bound and
+        $\cos\theta = 0$, so $x_0$ does not depend on $\psi$. This is the coordinate singularity of the
+        angles $(\theta,\psi)$. The interior-point preset also stops with
+        \texttt{ALGORITHMIC\_ERROR} on the $2$ starts $\psi_0=0$, $\theta_0\in\{30^\circ,45^\circ\}$, which
+        shows that a multistart remains essential. With the earlier guess (midpoints from a
+        separate RK4 pass of $2N$ steps) the outcomes of $2$ (\texttt{ipopt}) and $3$ (\texttt{filtersqp})
+        starts differed. Even though the two guesses differ by only about $10^{-9}$, the run from a start that lies far from the
+        optimum is sensitive to such details.
+  \item From $\psi_0 = 0$ (exactly on the bound and on the symmetry axis), the interior-point run
+        reaches the optimum from $\theta_0=60^\circ$, whereas the active-set runs stay at $\psi=0$.
+        An interior-point method first moves the start strictly inside the bounds, and this
+        presumably breaks the East--West symmetry.
+\end{itemize}
+
+\section{Notation and code}
+
+Table~\ref{tab:notation} relates the symbols above to the names in \texttt{ball\_throw.py}. Line
+numbers refer to the current version of the file. Python arrays are zero-based, so the state
+components are \py{x[0..5]} $= (r_E,r_N,r_U,v_E,v_N,v_U)$, and \py{traj[i]} $= x_i$.
+
+{\small
+\begin{longtable}{p{2.6cm}p{5.4cm}p{4.6cm}l}
+\caption{Notation $\leftrightarrow$ Python.}\label{tab:notation}\\
+\toprule
+Symbol & Meaning & Python name & Line(s)\\
+\midrule
+\endfirsthead
+\toprule
+Symbol & Meaning & Python name & Line(s)\\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\multicolumn{4}{l}{\emph{Variables}}\\
+$T$ & flight time (free) & \py{T}, \py{p[2]} & 83\\
+$N$ & number of RK4 steps & \py{N}, \py{args.N} & 77, 324\\
+$h = T/N$ & step size & \py{h} & 84\\
+$\epsilon = \partial h/\partial p$ & $(0,0,1/N)^\top$ & \py{e} & 85\\
+$x(t),\ x_i$ & state $(r,v)\in\R^6$; grid value & \py{x}, \py{traj[i]} & 86, 112--113\\
+$r = (r_E,r_N,r_U)$ & position & \py{traj[i, 0:3]} & 146, 156--157\\
+$v = (v_E,v_N,v_U)$ & velocity & \py{x[3:]} & 51, 54\\
+$v_{\mathrm{rel}} = v-w$ & air-relative velocity & \py{vrel}, \py{nvrel} & 51, 58--59\\
+$u = (\theta,\psi)$ & control (release angles) & \py{theta}, \py{psi} & 66, 83\\
+$p = (\theta,\psi,T)$ & NLP variables & \py{p}, \py{NP = 3} & 29, 77, 83\\
+$p_0$ & multistart initial guess & \py{p0} & 204\\
+$S_i = \partial x_i/\partial p$ & sensitivity, $6\times3$ & \py{S}, \py{sens_all[i]} & 86, 110--111\\
+$k_1,\dots,k_4$ & RK4 stages \eqref{eq:rk4} & \py{k1}, \dots, \py{k4} & 96--102\\
+$K_1,\dots,K_4$ & stage sensitivities \eqref{eq:sens} & \py{dk1}, \dots, \py{dk4} & 106--109\\
+\midrule
+\multicolumn{4}{l}{\emph{Constants}}\\
+$m$ & mass & \py{Ball.m} & 36\\
+$d$ & diameter & \py{Ball.d} & 37\\
+$C_d$ & drag coefficient & \py{Ball.cd} & 38\\
+$\rho$ & air density & \py{Ball.rho} & 39\\
+$g_0$ & gravity & \py{Ball.g0} & 40, 53\\
+$v_0$ & release speed & \py{Ball.v0} & 41\\
+$h_0$ & release height & \py{Ball.h0} & 42\\
+$h_{\max}$ & height cap & \py{Ball.hmax} & 43\\
+$V_w,\ w$ & wind speed, wind vector $(0,-V_w,0)$ & \py{args.wind}, \py{Ball.w} & 45\\
+$A$ & cross-section & \py{area} & 46\\
+$k$ & drag constant \eqref{eq:k} & \py{Ball.k} & 47\\
+\midrule
+\multicolumn{4}{l}{\emph{Functions}}\\
+$F(x)$ & dynamics \eqref{eq:dyn} & \py{Ball.rhs} & 49--54\\
+$\partial F/\partial x = A(x)$ & Jacobian \eqref{eq:dFdx} & \py{Ball.rhs_jac} & 56--64\\
+$x_0(u),\ S_0$ & initial state \eqref{eq:x0}, its sensitivity & \py{Ball.initial_state} (\py{x0}, \py{S0}) & 66--74\\
+$\Phi_h,\ S_{i+1}$ & RK4 map \eqref{eq:rk4} and \eqref{eq:sens} & \py{rk4_shoot} & 77--114\\
+$f(p)$ & objective of \eqref{eq:nlp} & \py{ShootingNLP.objective} & 143--146\\
+$\nabla f(p)$ & gradient & \py{ShootingNLP.gradient} & 148--151\\
+$g(p)$ & constraints of \eqref{eq:nlp} & \py{ShootingNLP.constraints} & 153--157\\
+$\nabla g(p)^\top$ & dense $N\times3$ Jacobian & \py{ShootingNLP.jacobian} & 159--163\\
+$g_L,\ g_U$ & constraint bounds & \py{ShootingNLP.cl}, \py{.cu} & 127--128\\
+$p_L,\ p_U$ & variable bounds & \py{lb}, \py{ub} & 169--170\\
+--- & NLP (nlp) with Uno & \py{solve_one} & 166--188\\
+$T_0$ & drag-free flight time & \py{no_drag_flight_time} & 191--194\\
+--- & multistart & \py{multistart} & 197--213\\
+\end{longtable}
+}
+
+
+Table~\ref{tab:notation-hs} does the same for \texttt{ball\_throw\_colloc.py}. That script imports
+$F$, $\partial F/\partial x$, $x_0(u)$ and the RK4 map from \texttt{ball\_throw.py}, so those rows of
+Table~\ref{tab:notation} still apply.
+
+{\small
+\begin{longtable}{p{2.9cm}p{5.1cm}p{4.6cm}l}
+\caption{Notation $\leftrightarrow$ Python for the collocation script.}\label{tab:notation-hs}\\
+\toprule
+Symbol & Meaning & Python name & Line(s)\\
+\midrule
+\endfirsthead
+\toprule
+Symbol & Meaning & Python name & Line(s)\\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\multicolumn{4}{l}{\emph{Variables and sizes}}\\
+$z$ & all NLP variables \eqref{eq:nlp-hs} & \py{z} & 73--77\\
+$n = 3 + 6(2N+1)$ & number of variables & \py{n} & 59\\
+$m = 6 + 12N$ & number of equality constraints & \py{n_con} & 60\\
+$x_i$ & node states, $i = 0..N$ & \py{X}, \py{ix(i)} & 65--67, 75\\
+$x_{i+\frac12}$ & midpoint states & \py{M}, \py{im(i)} & 69--71, 76\\
+$h = T/N$ & step size & \py{h} & 105\\
+$\lambda^H_i,\ \lambda^S_i$ & multipliers of $c^H_i$, $c^S_i$ & \py{lH}, \py{lS} & 165--166\\
+$\nu_i,\ \nu_{i+\frac12}$ & weights of $h\,F$ in $\lambda^\top c$ & \py{nuX}, \py{nuM} & 168--171\\
+$\sigma$ & objective multiplier & \py{sigma} & 160, 183\\
+\midrule
+\multicolumn{4}{l}{\emph{Functions}}\\
+$f(z),\ \nabla f(z)$ & objective, gradient & \py{objective}, \py{gradient} & 91--100\\
+$x_0 - x_0(\theta,\psi)$ & initial condition & \py{c[:NS]} & 107\\
+$c^H_i$ & Hermite midpoint equation \eqref{eq:hs} & \py{c[r:r + NS]} & 111\\
+$c^S_i$ & Simpson equation \eqref{eq:hs} & \py{c[r + NS:r + 2 * NS]} & 112\\
+bounds & $p_L, p_U$; $0\le r_{U,i}\le h_{\max}$; $r_{U,N}=0$ & \py{bounds} & 79--88\\
+Jacobian & sparse blocks, pattern & \py{jacobian}, \py{_build_jac_structure} & 114--145\\
+\eqref{eq:d2F} & drag Hessian contraction & \py{rhs_hess_contract} & 37--45\\
+$\nabla^2_{zz}L$ & Lagrangian Hessian, lower triangle & \py{hessian}, \py{_build_hess_structure} & 148--184\\
+$z_0$ & RK4 nodes + Hermite midpoints & \py{initial_guess} & 187--198\\
+--- & NLP \eqref{eq:nlp-hs} with Uno & \py{solve_colloc} & 201--223\\
+--- & multistart (+ shooting comparison) & \py{multistart} & 226--249\\
+--- & finite-difference check & \py{check_derivs} & 254\\
+\end{longtable}
+}
+
+\end{document}
