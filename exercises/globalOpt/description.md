@@ -19,7 +19,7 @@ that attempts to answer these questions by `claude` or `openCode` or `codex`
 5. Discuss the plan with the coding agent; check whether you need other resources.
 	1. Consider writing `python` code for the underestimators to check the results.
 	2. Do you need a formal verification tool such as `LEAN`?
-6. Execute the plan and compare to your own results (hint: tale a pictture of your solution and ask the coding agent to translate it to `latex`
+6. Execute the plan and compare to your own results. *Hint: take a pictture of your solution and ask the coding agent to translate it to `latex`*
 7. The outcome should be a short `latex` document with the comparison.
 
 **I have not done this exercise with claude, so I have no idea what will happen. Good Luck!**
