@@ -1,0 +1,122 @@
+\documentclass[11pt,fleqn,addpoints]{exam}
+\usepackage[margin=0.75in, paper=a4paper]{geometry}
+\usepackage{enumerate}
+
+\usepackage{amsmath,amssymb,mathrsfs,epsfig,graphicx,xcolor,amsthm,multirow}
+
+\newcommand{\R}{\mathbb{R}}
+
+\renewcommand{\phi}{\varphi}
+
+\newcommand{\st}{\texttt{s.t.}}
+\newcommand{\abs}[1]{\left|#1\right|}
+\newcommand{\zero}{\mathbf{0}}
+\newcommand{\trps}{^\texttt{T}}
+\renewcommand{\aa}{\ensuremath{\alpha}}
+
+\newcommand{\ignore}[1]{ }
+
+\renewcommand{\hat}[1]{\widehat{#1}}
+
+\runningfooter{}{}{}
+\marksnotpoints
+\bracketedpoints
+
+\setlength{\parindent}{0pt}
+\begin{document}
+\begin{center}
+  \textbf{Summer School on Nonlinear Optimization with Mixed Integer and
+Complementarity Constraints}
+  \\Tutorial Sheet, October 1, 2026
+\end{center}
+\vskip 2ex
+
+  {\em Background: McCormick relaxations and RLT create semi-definite programming (SDP) problems
+  with conic constraints of the same dimension as the Hessian matrix, $n$. The
+  complexity of SDP naively scales as ${\cal O}(n^6)$, making it prohibitive for
+  large matrices. The first three questions are concerned with reductions in size of the conic
+  constraints.}
+  
+
+  \begin{questions}
+
+  \question
+
+  Consider the following two Hessians:
+  \[
+  Q_1 = \left[ \begin{array}{cccc}
+      -2 & -1 & 0 & 0 \\
+      -1 & 2 & 0 & 0 \\
+      0 & 0 & 3 & -1 \\
+      0 & 0 & -1 & 2
+    \end{array} \right] \quad
+  Q_2 = \left[ \begin{array}{cccc}
+      -2 & 1 & 0 & 0 \\
+      1 & 2 & -1 & 0 \\
+      0 & -1 & 3 & -1 \\
+      0 & 0 & -1 & 2
+    \end{array} \right] 
+  \]
+  What is the smallest RLT relaxation of the quadratic constraints
+  \[ x^T Q_i x + b^T x + a \leq 0, \quad i=1,2 \text{?}\]
+  How can you improve the RLT of $Q_2$?
+
+  \question
+
+  Sven is lazy and does not want to write down the RLT/McCormick relaxation
+  of the following quadratic constraint:
+  \[ \big( 1 - x_1 + 2 x_2 - 2 x_4 \big) \big( 4x_2 - 5 x_3 + x_4 + 2 \big) \leq 2 ,\]
+  with $-1 \leq x_i \leq 1$.
+  He believes that he only needs a single bilinear term. Can you find the term, and
+  write its McCormick relaxation?
+
+  \question
+
+  Consider the nonconvex polynomial optimization with three nonconvex terms:
+  \[ \begin{array}{ll} \displaystyle
+    \min_x & f(x) := - x_1^2 x_2^2 + 2 x_1 x_2^3 - x_2^4 \\
+     \st     & -1 \leq x_i \leq 1 \; \mbox{ for } \; i=1,2
+   \end{array}
+  \]
+  RLT forms a linear relaxation by introducing new linear variables:
+  ${X_{1122} \simeq x_1^2 x_2^2}, {X_{1222} \simeq x_1 x_2^3}, {X_{2222} \simeq x_2^4}$.
+  Show how to obtain valid inequalities for ${X_{1122}}$ by multiplying bounds on
+  $x_1, x_2$, e.g.:
+  \[ \begin{array}{ll}
+    0 \leq & (1-x_1)^2 (1-x_2)^2  \\
+    0 \leq & 1 - 2 x_1 - 2 x_2 + 4 X_{12} + X_{11} + X_{22} - 2 X_{122} - 2 X_{211} + {X_{1122}}.
+  \end{array}
+  \]
+  What are bounds and valid inequalities for the intermediate powers,
+  $X_{12}, X_{11}, X_{22}, X_{122}, X_{211}$?
+    
+  Show that $f(x)$ can be written as
+  \[ f(x) =  - \left( {x_1 x_2} - {x_2^2} \right)^2
+  \]
+  Can you derive an alternative RLT relaxation? Compare the two relaxations!
+  Which one is better?
+
+  \question 
+
+  Consider the following quadratically constrained quadratic optimization problem:
+  \[ \min_x \; x^T Q x, \quad \st \; x^T x = 1 .\]
+  Write down the KKT conditions for this problem, and show that the optimal
+  solution is the smallest eigenvalue of $Q$. Why? What happens if we replace
+  $\min$ by $\max$?
+
+  Hence, solve this problem for
+  {\tt Q = [ 4 -1 0 0 ; -1 4 -2 0; 0 -2 3 2; 0 0 2 1]}
+  (given in {\tt Matlab} notation) for both $\min$ and $\max$.
+  
+
+  \question
+
+  These questions can be answered both by humans and by {\tt claude/codex/openCode}.
+  An interesting question is how far the AI tools would get with these exercises.
+  Use planning mode to discuss how to address these problems; possibly add the pdf
+  of Lecture 9 into the context window; compare to your answers!
+
+
+\end{questions}
+\end{document}
+
