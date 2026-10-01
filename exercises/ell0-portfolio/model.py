@@ -131,7 +131,7 @@ class SparsePortfolioOptimization:
         for i in range(self.N):
             self.cc_pairs_list.append((self.N + i, 2 * self.N + i))
             self.cc_types_list.append(0)  # VARVAR 0 VARCON 1 CONVAR 2 CONCON 3
-            self.cc_pairs_list.append((4 * self.N + i, 3 * self.N + i))
+            self.cc_pairs_list.append((3 * self.N + i, 4 * self.N + i))
             self.cc_types_list.append(0)  # VARVAR 0 VARCON 1 CON
 
         self.lbg_ccopt = ca.vertcat(1.0, ca.DM.zeros(self.g_ccopt.shape[0] - 1))
@@ -165,6 +165,12 @@ class SparsePortfolioOptimization:
             "cc_types": self.cc_types_list,  # cc_types from libMad: VARVAR 0 VARCON 1 CONVAR 2 CONCON 3
             "print_time": False,
         }
+
+        casadi_solver_opts["ccopt"] = {
+            "relaxation_update.TYPE": "RolloffRelaxationUpdate",
+            "q_regularization": "critical_rho"
+        }
+
         casadi_solver_opts["madnlp"] = {"bound_relax_factor": 0.0}
 
         mpcc = {
